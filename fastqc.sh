@@ -2,33 +2,35 @@
 
 s3Path=$1
 
-for folderNumber in {81..104}; do
+for folderNumber in {640..663}; do
+	
+	# define file identifier
+	value=$((folderNumber - 559))
 
 	# define local paths
-	localData=~/data/${folderNumber}
-	qcOutput=~/fastqFileQC/${folderNumber}
+	localData=./data/${folderNumber}
+	qcOutput=./fastqFileQC/${folderNumber}
 
 	# make destination directory for fastqc files
 	mkdir -p "$qcOutput"
 	mkdir -p "$localData"
 
-	#upload data from s3 bucket
-	s3Folder=$(aws s3 ls "${s3Path}" | awk '{print $2}' | grep "730${folderNumber}")
+	#download data from s3 bucket
+	s3Folder=$(aws s3 ls "$s3Path" | awk '{print $2}' | grep "${folderNumber}")
 	s3Folder=${s3Folder%/}
-	fileList=$(aws s3 ls "${s3Path}${s3Folder}/" | awk '{print $4}' | grep -v '^$')
+	s3NestFolder=$(aws s3 ls "${s3Path}${s3Folder}/" | awk '{print $4}' | grep "730${value}_L001")
+	s3NestFolder=${s3NestFolder%/}
 
-	for file in $fileList; do
-		echo "Downloading from ${s3Path}${folderNumber}/ to ${localData}"
-		aws s3 cp "${s3Path}${s3Folder}/${file}" "$localData/${file}"
+	echo "Downloading from ${s3Path}${s3Folder}${s3NestFolder}/ to ${localData}"
+	aws s3 cp "${s3Path}${s3Folder}${s3NestFolder}/" "${localData}/${s3NestFolder}" --recursive
 
-		echo "Running FastQC on ${file}..."
+	echo "Running FastQC on ${value}..."
 
-		fastqc -o "$qcOutput" -f fastq "$localData"/*_R1_*.fastq.gz
-		fastqc -o "$qcOutput" -f fastq "$localData"/*_R2_*.fastq.gz
+	fastqc -o "$qcOutput" -f fastq ${localData}/${s3NestFolder}/*_R1_*.fastq.gz
+	fastqc -o "$qcOutput" -f fastq ${localData}/${s3NestFolder}/*_R2_*.fastq.gz
 
-		# Delete local data
-		echo "Removing folder ${folderNumber}"
-	done
+	# Delete local data
+	echo "Removing folder ${folderNumber}"
 
 	# Upload fastQC results to S3 bucket
 	echo "Uploading FastQC results to ${s3Path}fastqc/${folderNumber}/"
