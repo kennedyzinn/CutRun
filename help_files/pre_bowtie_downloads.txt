@@ -1,0 +1,23 @@
+# install python (if not downloaded already)
+sudo apt update
+sudo apt install python3 python3-pip 
+
+#create environment under Conda and activate, named 'bioenv' (or check available environments using conda info --envs
+Conda activate bioenv
+#add channels using 'config'
+	#(channels are repositories where conda searches for packages)
+#install bowtie under bioenv
+#download bowtie2 under bioenv
+Conda install bowtie2
+
+#download bowtie2 online and unzip it 
+	#(online is sometimes more updated than Conda's and works a fallback incase of bugs and also validation/ tool integrity)
+##Put it under 
+C:/ drive (why??)
+wget https://sourceforge.net/projects/bowtie-bio/files/bowtie2/2.5.4/bowtie2-2.5.4-linux-x86_64.zip
+unzip bowtie2-2.5.4-linux-x86_64.zip
+Ubuntu execution code: chmod -R +x /path/to/directory 
+
+#download genome
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz 
+gunzip hg38.fa.gz 

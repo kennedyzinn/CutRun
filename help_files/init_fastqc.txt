@@ -1,0 +1,4 @@
+# this file exists to remind me how to install fastqc, since it needs to be done everytime
+
+source ~/.bashrc
+conda install -c bioconda fastqc
