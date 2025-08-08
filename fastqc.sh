@@ -17,17 +17,15 @@ for folderNumber in {640..663}; do
 
 	#download data from s3 bucket
 	s3Folder=$(aws s3 ls "$s3Path" | awk '{print $2}' | grep "${folderNumber}")
-	s3Folder=${s3Folder%/}
-	s3NestFolder=$(aws s3 ls "${s3Path}${s3Folder}/" | awk '{print $4}' | grep "730${value}_L001")
-	s3NestFolder=${s3NestFolder%/}
+	s3NestFolder=$(aws s3 ls "${s3Path}${s3Folder}" | awk '{print $2}' | egrep "_730?${value}_L001")
 
-	echo "Downloading from ${s3Path}${s3Folder}${s3NestFolder}/ to ${localData}"
-	aws s3 cp "${s3Path}${s3Folder}${s3NestFolder}/" "${localData}/${s3NestFolder}" --recursive
+	echo "Downloading from ${s3Path}${s3Folder}${s3NestFolder} to ${localData}"
+	aws s3 cp "${s3Path}${s3Folder}${s3NestFolder}" "${localData}" --recursive
 
 	echo "Running FastQC on ${value}..."
 
-	fastqc -o "$qcOutput" -f fastq ${localData}/${s3NestFolder}/*_R1_*.fastq.gz
-	fastqc -o "$qcOutput" -f fastq ${localData}/${s3NestFolder}/*_R2_*.fastq.gz
+	fastqc -o "$qcOutput" -f fastq ${localData}/*_R1_*.fastq.gz
+	fastqc -o "$qcOutput" -f fastq ${localData}/*_R2_*.fastq.gz
 
 	# Delete local data
 	echo "Removing folder ${folderNumber}"
