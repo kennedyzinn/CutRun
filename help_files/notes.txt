@@ -1,0 +1,142 @@
+#specify absolute path where genetics data is saved. This path is to the project folder, not a specific file or data folder
+projPath="/Users/kennedyzinn/Desktop/GRA/cut_tag"
+#note that environment must be changed for bioconda and samtools if packages are not installed in default channels
+
+#create data folder with folder for igG antibody replicate 2
+mkdir -p $projPath/data/IgG_rep2
+
+#pull training data from website and insert into data folder
+wget -O $projPath/data/IgG_rep2/IgG_rep2_R1_001.fastq.gz ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR875/001/SRR8754611/SRR8754611_1.fastq.gz
+wget -O $projPath/data/IgG_rep2/IgG_rep2_R2_001.fastq.gz ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR875/001/SRR8754611/SRR8754611_2.fastq.gz
+wget -O $projPath/data/IgG_rep2/IgG_rep2_R1_002.fastq.gz ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR875/002/SRR8754612/SRR8754612_1.fastq.gz
+wget -O $projPath/data/IgG_rep2/IgG_rep2_R2_002.fastq.gz ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR875/002/SRR8754612/SRR8754612_2.fastq.gz
+
+#DATA PRE-PROCESSING
+#fastQC
+#obtain fastQC. note that -P means "prefix" and -p means "parent"
+mkdir -p $projPath/tools
+wget -P $projPath/tools https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.9.zip
+cd $projPath/tools
+unzip fastqc_v0.11.9.zip
+
+#run fastQC
+#note that {} indicate variables
+#-o is output and -f is format
+#need to define histName by name of sample (in this case, IgG)
+#since number of files processed is small, do one by one. May not need to define histName then and just use sample name instead
+mkdir -p ${projPath}/fastqFileQC/${histName}
+$projPath/tools/FastQC/fastqc -o $projPath/fastqFileQC/${histName} -f fastq $projPath/data/IgG_rep2/IgG_rep2_R1_001.fastq.gz
+$projPath/tools/FastQC/fastqc -o $projPath/fastqFileQC/${histName} -f fastq $projPath/data/IgG_rep2/IgG_rep2_R1_002.fastq.gz
+$projPath/tools/FastQC/fastqc -o $projPath/fastqFileQC/${histName} -f fastq $projPath/data/IgG_rep2/IgG_rep2_R2_001.fastq.gz
+$projPath/tools/FastQC/fastqc -o $projPath/fastqFileQC/${histName} -f fastq $projPath/data/IgG_rep2/IgG_rep2_R2_002.fastq.gz
+
+# 3.1, Bowtie2 alignment
+
+#create environment under Conda and activate, named 'bioenv'
+Conda activate bioenv
+#add channels using 'config'
+	#(channels are repositories where conda searches for packages)
+#install bowtie under bioenv
+#download bowtie2 under bioenv
+Conda install bowtie2
+
+#download bowtie2 online and unzip it 
+	#(online is sometimes more updated than Conda's and works a fallback incase of bugs and also validation/ tool integrity)
+##Put it under 
+C:/ drive (why??)
+wget https://sourceforge.net/projects/bowtie-bio/files/bowtie2/2.5.4/bowtie2-2.5.4-linux-x86_64.zip
+unzip bowtie2-2.5.4-linux-x86_64.zip
+Ubuntu execution code: chmod -R +x /path/to/directory 
+
+#download genome
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz 
+gunzip hg38.fa.gz 
+
+
+#define number of "cores" (" "cores" refers to the number of processor cores that can be used simultaneously to align short DNA sequences to large genomes")
+Cores=8
+
+#build index, ./hg38 is local path to index 
+	#('an index is a data structure that allows fast and efficient searching, querying, or mapping of sequencing reads (short DNA sequences) to a reference genome. It acts as a lookup table or shortcut, enabling alignment tools to rapidly identify where a given read might match the reference genome')
+bowtie2-build ./hg38.fa ./hg38 
+
+#align
+ref="./hg38"
+bowtie2 --end-to-end --very-sensitive --no-mixed --no-discordant --phred33 -I 10 -X 700 -x ${ref} -p ${cores} -1 ./data/igG_rep2/IgG_rep2_R1_001.fastq -2 .data/igG_rep2/IgG_rep2_R2_001.fastq -S ./alignment/sam/igG_rep2_001_bowtie2.sam &> ./alignment/sam/bowtie2_summary/IgG_rep2_001_bowtie2.txt
+
+# 3.1.2
+#spike-in calibration is a separate reference used to calibrate the quality/depth of reads and normalize protein abundance, which allows for quantitative comparisons
+
+# 3.2 completed in R
+
+# 3.3, Remove Duplicates
+
+#Following code sorts the sam files
+	#packages needed: samtools and Picard from java
+mkdir -p ${projPath}/alignment/remove_duplicate/picard_summary
+
+# sort by coordinate
+java -jar ./picard.jar SortSam -I ./alignment/sam/igG_rep2_001_bowtie2.sam -O ./alignment/sam/igG_rep2_001_sorted.sam -SORT_ORDER coordinate
+
+# check permissions on directory 
+Ls -ld alignment
+
+# check that there is pg in sam file before mark duplicate
+	PG stands for Program Group, which is an optional header tag
+grep "^@PG" ./alignment/sam/igG_rep2_001_sorted.sam
+	#look for @PG tag in output
+
+Java -jar picard.jar AddOrReplaceReadGroups I=./alignment/sam/igG_rep2_001_sorted.sam  O=./alignment/sam/igG_rep2_001_sorted_RG.sam  RGID=4  RGLB=lib1  RGPL=illumina  RGPU=unit1  RGSM=20
+
+# mark duplicates
+java -jar ./picard.jar MarkDuplicates -I ./alignment/sam/igG_rep2_001_sorted_RG.sam -O ./alignment/remove_duplicate/picard_summary/igG_rep2_001_sorted_dupMarked.sam -M ./alignment/remove_duplicate/picard_summary/igG_rep2_001_picard_dupMark.txt
+
+# remove duplicates
+Java -jar ./picard.jar MarkDuplicates I=./alignment/sam/igG_rep2_001_sorted_RG.sam O=./alignment/remove_duplicate/igG_rep2_001_sorted.rmDup.sam REMOVE_DUPLICATES=true M=./alignment/remove_duplicate/picard_summary/igG_rep2_001_picard.rmDup.txt
+
+#3.4
+mkdir -p ./alignment/sam/fragmentLen
+# extract the fragment length, which is the 9th column in the alignment sam file
+samtools view -F 0x04 ./alignment/sam/igG_rep2_001_bowtie2.sam | awk -F'\t' 'function abs(x){return ((x < 0.0) ? -x : x)} {print abs($9)}' | sort | uniq -c | awk -v OFS="\t" '{print $2, $1/2}' >./alignment/sam/fragmentLen/igG_rep2_001_fragmentLen.txt
+
+#4.1 (skipped for now)
+
+#4.2
+#filter for mapped read pairs
+samtools view -bS -F 0x04 ./alignment/sam/igG_rep2_001_bowtie2.sam >./alignment/bam/igG_rep2_001_bowtie2.mapped.bam
+
+#convert new bam file to bed
+bedtools bamtobed -i /Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bam/igG_rep2_001_bowtie2.mapped.bam -bedpe >/Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.bed
+
+#keep read pairs on same chromosome and fragment length less than 1000bp
+#the awk comand îs a text processing and data manipulation tool. It allows for scanning, processing and extracting text from files or streams based on patterns and perform operations on the data
+awk '$1==$4 && $6-$2 < 1000 {print $0}' /Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.bed >/Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.clean.bed
+
+#extract fragment related columns
+cut -f 1,2,6 /Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.clean.bed | sort -k1,1 -k2,2n -k3,3n  >/Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.fragments.bed
+
+#4.3
+#use the mid point of each fragment to determine which 500 base pair bins to which the fragment belongs
+#bin is a unit of analysis for counting reads
+#hierarchical clustering occurs when the correlation matrix is analyzed to identify groups of similar datasets. The datasets are organized into a 'hierarchical tree' ('dendrogram') based on similarity. Closer branches = more similar. Allows for visualization of patterns of similarity
+#higher correlation between replicates is good, negative controls should not cluster closely with experimental datasets. Lack of close clusters between controls and experimental conditions indicate low background noise
+#hierarchical clustering also helps identify relationships between datasets across conditions
+binLen=500
+awk -v w=$binLen '{print $1, int(($2 + $3)/(2*w))*w + w/2}' ./alignment/bed/igG_rep2_001_bowtie2.fragments.bed | sort -k1,1V -k2,2n | uniq -c | awk -v OFS="\t" '{print $2, $3, $1}' |  sort -k1,1V -k2,2n  >/Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bed/igG_rep2_001_bowtie2.fragmentsCount.bin$binLen.bed
+
+#5 (skip for now)
+
+#6, skip for now
+#6.1
+seacr="/Users/kennedyzinn/Desktop/GRA/cut_tag/SEACR_1.3.sh"
+histControl=$2
+mkdir -p /Users/kennedyzinn/Desktop/GRA/cut_tag/peakCalling/SEACR
+
+bash $seacr Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bedgraph/igG_rep2_001_bowtie2.fragments.normalized.bedgraph \
+     Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bedgraph/${histControl}_bowtie2.fragments.normalized.bedgraph \
+     non stringent Users/kennedyzinn/Desktop/GRA/cut_tag/peakCalling/SEACR/igG_rep2_001_seacr_control.peaks
+
+bash $seacr Users/kennedyzinn/Desktop/GRA/cut_tag/alignment/bedgraph/igG_rep2_bowtie2.fragments.normalized.bedgraph 0.01 non stringent Users/kennedyzinn/Desktop/GRA/cut_tag/peakCalling/SEACR/igG_rep2_seacr_top0.01.peaks
+
+#7
+#7.1, skip for now
