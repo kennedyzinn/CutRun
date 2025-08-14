@@ -19,10 +19,10 @@ for folderNumber in {640..663}; do
 	aws s3 cp "${s3Path}${s3Folder}${s3NestFolder}" "${localData}" --recursive
 
 	echo "Trimming adapters of sample ${value} using CutAdapt."
-	cutadapt -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -o ${localData}/${value}.R1.trimmed.fastq.gz -p ${localData}/${value}.R2.trimmed.fastq.gz ${localData}/*_R1_*.fastq.gz ${localData}/*_R2_*.fastq.gz
+	cutadapt -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -o ${localData}/${value}.R1.trimmed.fastq.gz -p ${localData}/${value}.R2.trimmed.fastq.gz ${localData}/*_R1_*.fastq.gz ${localData}/*_R2_*.fastq.gz --minimum-length 20 --cores 4
 
 	echo "Alignment of ${value} to HG38"
-	bowtie2 --end-to-end --very-sensitive --no-mixed --no-discordant --phred33 -I 10 -X 700 -p 4 -x ${ref} -1 ${localData}/*R1.trimmed*.fastq.gz -2 ${localData}/*R2.trimmed*.fastq.gz -S /home/ssm-user/alignment/sam/${value}_bowtie2.sam &> /home/ssm-user/alignment/sam/bowtie2_summary/${value}_bowtie2.txt
+	bowtie2 --end-to-end --very-sensitive --no-mixed --no-discordant --phred33 -I 10 -X 700 -p 4 -x ${ref} -1 ${localData}/${value}.R1.trimmed.fastq.gz -2 ${localData}/${value}.R2.trimmed.fastq.gz -S /home/ssm-user/alignment/sam/${value}_bowtie2.sam &> /home/ssm-user/alignment/sam/bowtie2_summary/${value}_bowtie2.txt
 
 	#upload trimmed fastq files to s3 bucket
 	echo "Uploading trimmed files to ${s3Path}${s3Folder}${s3NestFolder}"
