@@ -25,8 +25,8 @@ for folderNumber in {640..663}; do
 	bowtie2 --local --very-sensitive --no-mixed --no-discordant --phred33 -I 10 -X 700 -p 4  -x ${ref} -1 ${localData}/*R1.trimmed*.fastq.gz -2 ${localData}/*R2.trimmed*.fastq.gz -S /home/ssm-user/alignment/sam/${value}_bowtie2.sam &> /home/ssm-user/alignment/sam/bowtie2_summary/${value}_bowtie2.txt
 
 	#upload trimmed data to s3 bucket
-	aws s3 cp "${localData}/${value}.R1.trimmed.fastq.gz" $${s3Path}${s3Folder}${s3NestFolder}"	
-	aws s3 cp "${localData}/${value}.R2.trimmed.fastq.gz" $${s3Path}${s3Folder}${s3NestFolder}"	
+	aws s3 cp "${localData}/${value}.R1.trimmed.fastq.gz" "${s3Path}${s3Folder}${s3NestFolder}"	
+	aws s3 cp "${localData}/${value}.R2.trimmed.fastq.gz" "${s3Path}${s3Folder}${s3NestFolder}"	
 
 	#upload alignment results to s3 bucket
 	echo "Uploading SAM files to /alignment/sam in s3 bucket"
