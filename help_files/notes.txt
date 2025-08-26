@@ -43,14 +43,13 @@ Conda install bowtie2
 #download bowtie2 online and unzip it 
 	#(online is sometimes more updated than Conda's and works a fallback incase of bugs and also validation/ tool integrity)
 ##Put it under 
-C:/ drive (why??)
 wget https://sourceforge.net/projects/bowtie-bio/files/bowtie2/2.5.4/bowtie2-2.5.4-linux-x86_64.zip
 unzip bowtie2-2.5.4-linux-x86_64.zip
 Ubuntu execution code: chmod -R +x /path/to/directory 
 
 #download genome
-wget http://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz 
-gunzip hg38.fa.gz 
+wget http://hgdownload.soe.ucsc.edu/goldenPath/mm39/bigZips/mm39.fa.gz
+gunzip mm39.fa.gz 
 
 
 #define number of "cores" (" "cores" refers to the number of processor cores that can be used simultaneously to align short DNA sequences to large genomes")
