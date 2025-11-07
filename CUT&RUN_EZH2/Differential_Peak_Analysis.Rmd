@@ -226,7 +226,7 @@ library(DESeq2)
 dds <- DESeqDataSetFromMatrix(
   countData = count_matrix,
   colData = coldata,
-  design = ~replicate+mutant*treatment
+  design = ~replicate+mutant+treatment
 )
 
 dds <- DESeq(dds)
