@@ -210,13 +210,13 @@ summary(res_mut)
 #### treatment
 
 ```{r}
-plotMA(res_tx, ylim = c(-2,2))
+plotMA(res_tx, ylim = c(-2,2), main = "Treatment Effect in Treatment:R179 interaction model")
 ```
 
 #### mutant
 
 ```{r}
-plotMA(res_mut, ylim = c(-2,2))
+plotMA(res_mut, ylim = c(-2,2), main = "R179 Effect in Treatment:R179 interaction model")
 ```
 
 ## no interaction model
@@ -251,13 +251,13 @@ summary(res_mut)
 #### treatment
 
 ```{r}
-plotMA(res_tx, ylim = c(-2,2))
+plotMA(res_tx, ylim = c(-2,2), main = "Treatment Effect in no interaction model")
 ```
 
 #### mutant
 
 ```{r}
-plotMA(res_mut, ylim = c(-2,2))
+plotMA(res_mut, ylim = c(-2,2), main = "R179 Effect in No Interaction Model")
 ```
 
 ## Model with treatment:mutation and replicate:mutation interactions
@@ -287,7 +287,7 @@ res_rm_int <- results(dds, name = "replicate2.mutantR179")
 summary(res_rm_int)
 ```
 
-## mutant:replicate model
+## Mutant:replicate model
 ```{r}
 dds <- DESeqDataSetFromMatrix(
   countData = count_matrix,
@@ -367,13 +367,13 @@ boxplot(total_counts ~ colData(dds)$replicate,
 ### treatment
 
 ```{r}
-plotMA(res_tx, ylim = c(-2,2))
+plotMA(res_tx, ylim = c(-2,2), main = "Treatment Effect")
 ```
 
 ### mutant
 
 ```{r}
-plotMA(res_mut, ylim = c(-2,2))
+plotMA(res_mut, ylim = c(-2,2), main = "R179 Effect")
 ```
 
 ## Volcano plots
@@ -530,30 +530,4 @@ for (rep_level in rep_levels) {
     }
 ```
 
-# NEW ATTEMPT WITH DIFFCHIPL
-
-```{r}
-library(DiffChIPL)
-
-cpmD <- cpmNorm(count_matrix)
-design <- model.matrix( ~ replicate + mutant + treatment, data = coldata)
-
-res <- DiffChIPL(cpmD, design, group0 = treatment)
-```
-
-```{r}
-fitRlimm3 = res$fitDiffL
-rtRlimm3 = res$resDE
-
-id_Rlimma_CPM = rownames(rtRlimm3[which(rtRlimm3$adj.P.Val < 0.05),])
- 
-rtRlimm3 = rtRlimm3[rownames(cpmD),]
-aveE = rtRlimm3$AveExpr
-logFC = rtRlimm3$logFC
-padj = rtRlimm3$adj.P.Val
-plotMAVoc2(mean=aveE, logfc=logFC, adj.P.Val=padj, FC=1, 
-          padj=0.05, MA=TRUE,
-          title=paste0("Rlimma-CPM \n", "treatment","(padj<0.05)\n", 
-                       length(id_Rlimma_CPM), " of ", nrow(rtRlimm3) ))
-```
 

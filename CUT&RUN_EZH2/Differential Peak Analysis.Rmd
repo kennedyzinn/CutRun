@@ -2,55 +2,130 @@
 title: "Differential Peak Analysis"
 author: "Kennedy Zinn"
 date: "2025-10-15"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
 ---
 
 ```{r}
-library(DESeq2)
-library(GenomicRanges)
-```
-
-```{r}
-# load data
-
-## define conditions of each sample
 conditions <- c("R179+T", "R179-T", "WT+T", "WT-T")
-condition_files <- lapply(conditions, paste0, "-EZH2.seacr.consensus.peak_counts.bed")
-
-# read peak files
-peaks <- lapply(condition_files, read.table, header=FALSE, sep="\t")
-```
-
-# Get count matrix
-
-```{r}
-# create GRanges objects
-granges <- lapply(peaks, function(peak){
-  GRanges(seqnames = peak$V1,
-          ranges = IRanges(start = peak$V2, end = peak$V3))
-})
-
-# combine
-all_peaks <- do.call(c, granges)
-master_peaks <- reduce(all_peaks)
-
-master_peaks$peak_id <- paste0("peak_", seq_along(master_peaks))
+replicates <- c("R1", "R2")
+sample_names <- unlist(lapply(conditions, function(cond){
+  paste0(cond, "-EZH2_", replicates)
+}))
 ```
 
 ```{r}
-# In R: Export master peaks to BED
-library(rtracklayer)
-
-export.bed(master_peaks, "master_peaks.bed")
+# load qc correlation data
+corr.df <- read.table("all_target_bams.plotCorrelation.mat.tab", header = TRUE, check.names = FALSE)
+head(corr.df)
 ```
+```{r}
+library(dplyr)
+cor_no_R3 <- corr.df[!grepl("3$", rownames(corr.df)), !grepl("3$", colnames(corr.df))]
+head(cor_no_R3)
+```
+# Quality Checks (revisit)
+
+## Correlation Plots
+
+```{r}
+library(corrplot)
+corrplot(as.matrix(corr.df), method = c("shade"), col = rainbow(200), col.lim = c(0,1), addgrid.col = "black")
+```
+
+```{r}
+corrplot(as.matrix(cor_no_R3), method = c("shade"), col = rainbow(200), col.lim = c(0,1), addgrid.col = "black")
+```
+
+## PCA
+```{r}
+# load PCA qc data
+pca <- read.table("all_target_bams.plotPCA.tab", header = TRUE, check.names = FALSE)
+head(pca)
+```
+
+### PC2 v PC3
+
+#### Including third replicate
+```{r}
+# plot PC 2 v PC3
+pc1 <- as.numeric(pca[1, -c(1,26)])
+pc2 <- as.numeric(pca[2, -c(1, 26)])
+pc3 <- as.numeric(pca[3, -c(1, 26)])
+pca_plot <- data.frame(
+  Sample = colnames(pca)[-c(1, 26)],
+  PC1 = pc1,
+  PC2 = pc2,
+  PC3 = pc3
+)
+
+#plot pc 2 and 3
+library(ggplot2)
+ggplot(pca_plot, aes(x = PC2, y = PC3, label = Sample)) +
+  geom_text(aes(label = Sample), vjust = -0.8, size = 3) +
+  theme_minimal() +
+  labs(title = "PCA", 
+       x = "PC2", 
+       y = "PC3") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Excluding third replicate
+```{r}
+pca_no_R3 <- pca_plot[!grepl("3$", pca_plot$Sample),]
+
+#plot pc1 and pc2 for first and second replicates only
+library(ggplot2)
+ggplot(pca_no_R3, aes(x = PC1, y = PC2, label = Sample)) +
+  geom_text(aes(label = Sample), vjust = -0.8, size = 3) +
+  theme_minimal() +
+  labs(title = "PCA", 
+       x = "PC2", 
+       y = "PC3") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### New PCA without third replicate
+```{r}
+# new pca sans third replicates
+new_pca <- prcomp(cor_no_R3)
+```
+
+```{r}
+variance_explained <- (new_pca$sdev^2 / sum(new_pca$sdev^2)) * 100
+
+# scree plot
+plot(1:length(variance_explained), variance_explained,
+     type = "b",
+     xlab = "Principal Component",
+     ylab = "Variance Explained (%)",
+     main = "Scree Plot",
+     pch = 19,
+     col = "steelblue",
+     lwd = 2)
+```
+
+```{r}
+pca_scores <- as.data.frame(new_pca$x)
+pca_scores$Sample <- rownames(pca_scores)
+
+ggplot(pca_scores, aes(x = PC1, y = PC2, label = Sample)) +
+  geom_text(aes(label = Sample), vjust = -0.8, size = 3) +
+  theme_minimal() +
+  labs(title = "PCA: First and Second Replicates",
+       x = paste0("PC1 (", round(variance_explained[1], 1), "%)"),
+       y = paste0("PC2 (", round(variance_explained[2], 1), "%)")) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
 # DESeq2
 
 ```{r}
-# define alignment files
-USB_PATH="/Volumes/EZH2/"
-align_path = sapply(USB_PATH, paste0, sample_names)
-align_files <- sapply(align_path, paste0, ".target.markdup.sorted.bam")
-
 # create colData
 m <- sub("([A-Za-z0-9]+)[+-]T-EZH2_R[1-3]", "\\1", sample_names)
 tx <- sub(".*([+-])T-EZH2_R[1-3]", "\\1", sample_names)
@@ -58,19 +133,30 @@ rep <- sub(".*([1-3])$", "\\1", sample_names)
 
 coldata <- data.frame(
   sample = sample_names,
-  mutant = factor(m),
+  mutant = factor(m, levels = c("WT", "R179")),
   treatment = factor(ifelse(tx=="-", 0,1)),
   replicate = factor(rep),
   row.names = sample_names
 )
-
-#get counts
-library(chromVAR)
-count_matrix <- getCounts(alignment_files = align_files, peaks = master_peaks, paired = TRUE)
 ```
 
+```{r}
+# load count matrix
+count_matrix <- read.csv("dense_countMat.csv", header = TRUE, check.names = FALSE)
+colnames(count_matrix) <- gsub(".target.markdup.sorted.bam", "", colnames(count_matrix))
+head(count_matrix)
+```
 
 ```{r}
+# remove low count genes
+count_matrix <- count_matrix[,-1]
+keep <- which(rowSums(count_matrix) > 5)
+count_matrix <- count_matrix[keep,]
+```
+
+## treatment*variant model
+```{r}
+library(DESeq2)
 dds <- DESeqDataSetFromMatrix(
   countData = count_matrix,
   colData = coldata,
@@ -78,10 +164,251 @@ dds <- DESeqDataSetFromMatrix(
 )
 
 dds <- DESeq(dds)
+resultsNames(dds)
 ```
 
+### interaction
 
 ```{r}
+res_int <- results(dds, name = "treatment1.mutantR179")
+summary(res_int)
+```
 
+### treatment
+
+```{r}
+res_tx <- results(dds, name = "treatment_1_vs_0")
+summary(res_tx)
+```
+
+### mutation
+
+```{r}
+res_mut <- results(dds, name = "mutant_R179_vs_WT")
+summary(res_mut)
+```
+
+## MA plot
+
+### treatment
+
+```{r}
+plotMA(res_tx, ylim = c(-1,1))
+```
+
+### mutant
+
+```{r}
+plotMA(res_mut, ylim = c(-1,1))
+```
+
+## no interaction model
+
+```{r}
+dds <- DESeqDataSetFromMatrix(
+  countData = count_matrix,
+  colData = coldata,
+  design = ~replicate+treatment+mutant
+)
+sizeFactors(dds) <- estimateSizeFactorsForMatrix(counts(dds))
+dds<- DESeq(dds)
+resultsNames(dds)
+```
+
+### treatment
+
+```{r}
+res_tx <- results(dds, name = "treatment_1_vs_0")
+summary(res_tx)
+```
+
+```{r}
+# compare library sizes
+# Total counts per sample
+total_counts <- colSums(counts(dds))
+
+# Boxplot
+boxplot(total_counts ~ colData(dds)$treatment, 
+        xlab = "Treatment", ylab = "Total Counts",
+        main = "Library Size by Treatment")
+```
+
+### mutation
+
+```{r}
+res_mut <- results(dds, name = "mutant_R179_vs_WT")
+summary(res_mut)
+```
+
+```{r}
+# compare library sizes
+# Total counts per sample
+total_counts <- colSums(counts(dds))
+
+# Boxplot
+boxplot(total_counts ~ colData(dds)$mutant, 
+        xlab = "Mutation", ylab = "Total Counts",
+        main = "Library Size by Mutation")
+```
+
+### replicate
+
+```{r}
+res_rep <- results(dds, name = "replicate_2_vs_1")
+summary(res_rep)
+```
+
+```{r}
+# compare library sizes
+# Total counts per sample
+total_counts <- colSums(counts(dds))
+
+# Boxplot
+boxplot(total_counts ~ colData(dds)$replicate, 
+        xlab = "Replicate", ylab = "Total Counts",
+        main = "Library Size by Replicate")
+```
+
+## MA plot
+
+### treatment
+
+```{r}
+plotMA(res_tx, ylim = c(-1,1))
+```
+
+### mutant
+
+```{r}
+plotMA(res_mut, ylim = c(-1,1))
+```
+
+# Visualizations
+
+## MA plot
+
+### treatment
+
+```{r}
+plotMA(res_tx, ylim = c(-1,1))
+```
+
+### mutant
+
+```{r}
+plotMA(res_mut, ylim = c(-1,1))
+```
+
+## Volcano plots
+
+```{r}
+library(tidyr)
+volcano <- function(res, title){
+  # convert results to df and clean
+  df <- as.data.frame(res) %>% 
+    filter(!is.na(padj) & !is.na(log2FoldChange))
+  
+  # categorize significance
+  df <- df %>% 
+    mutate(
+      sig = case_when(
+        padj < 0.1 & log2FoldChange > 1 ~ "Up",
+        padj < 0.1 & log2FoldChange < -1 ~ "Down",
+        padj <0.1 ~ "Significant",
+        TRUE ~ "Not Significant"
+      )
+    )
+  
+  # count peaks in each sig. category
+  counts <- df %>% dplyr::count(sig)
+  
+  # create volcano plot
+  p <- ggplot(df, aes(x = log2FoldChange, y = -log10(padj), color = sig)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    scale_color_manual(
+      values = c("Up" = "#d62728", "Down" = "#1f77b4", 
+                 "Significant" = "#ff7f0e", "NS" = "grey70"),
+      breaks = c("Up", "Down", "Significant", "NS"),
+      labels = c(
+        paste0("Up (n=", counts$n[counts$sig == "Up"], ")"),
+        paste0("Down (n=", counts$n[counts$sig == "Down"], ")"),
+        paste0("Sig, |LFC|<", 1, " (n=", 
+               counts$n[counts$sig == "Significant"], ")"),
+        paste0("NS (", counts$n[counts$sig == "NS"], ")")
+      )
+    ) +
+    geom_vline(xintercept = c(-1, 1), 
+               linetype = "dashed", color = "black", alpha = 0.5) +
+    geom_hline(yintercept = -log10(0.1), 
+               linetype = "dashed", color = "black", alpha = 0.5) +
+    labs(
+      title = title,
+      x = "Log2 Fold Change",
+      y = "-Log10 Adjusted P-value",
+      color = "Classification"
+    ) +
+    theme_classic(base_size = 12) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, face = "bold")
+    )
+  
+  return(p)
+}
+```
+
+### Treatment
+
+```{r}
+volcano_tx <- volcano(res_tx, "Treatment Effect")
+print(volcano_tx)
+```
+
+### Mutant
+
+```{r}
+volcano_mut <- volcano(res_mut, "R179 Variant Effect")
+print(volcano_mut)
+```
+
+### Treatment by variant
+
+```{r}
+# Get mutant levels (adjust column name if different)
+mutant_levels <- levels(dds$mutant)
+
+# Create a list to store results
+res_by_mutant <- list()
+volcano_by_mutant <- list()
+
+for (mut_level in mutant_levels) {
+  
+  # Subset DESeqDataSet
+  dds_subset <- dds[, dds$mutant == mut_level]
+  
+  # Update design formula - remove mutant since it's constant in subset
+  design(dds_subset) <- ~ replicate + treatment
+  
+  # Re-run DESeq on subset
+  dds_subset <- DESeq(dds_subset)
+  
+  # Get treatment effect in this mutant background
+  res_by_mutant[[mut_level]] <- results(dds_subset, 
+                                        name = "treatment_1_vs_0")
+  
+  # Create volcano plot
+  volcano_by_mutant[[mut_level]] <- volcano(
+    res_by_mutant[[mut_level]],
+    title = paste("Treatment Effect in", mut_level)
+  )
+  
+  # Display plot
+  print(volcano_by_mutant[[mut_level]])
+  
+  # save plot
+    ggsave(paste0("volcano_treatment_in_", mut_level, ".pdf"), 
+         volcano_by_mutant[[mut_level]], 
+         width = 8, height = 6)
+    }
 ```
 
