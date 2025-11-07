@@ -1,0 +1,87 @@
+---
+title: "Differential Peak Analysis"
+author: "Kennedy Zinn"
+date: "2025-10-15"
+output: html_document
+---
+
+```{r}
+library(DESeq2)
+library(GenomicRanges)
+```
+
+```{r}
+# load data
+
+## define conditions of each sample
+conditions <- c("R179+T", "R179-T", "WT+T", "WT-T")
+condition_files <- lapply(conditions, paste0, "-EZH2.seacr.consensus.peak_counts.bed")
+
+# read peak files
+peaks <- lapply(condition_files, read.table, header=FALSE, sep="\t")
+```
+
+# Get count matrix
+
+```{r}
+# create GRanges objects
+granges <- lapply(peaks, function(peak){
+  GRanges(seqnames = peak$V1,
+          ranges = IRanges(start = peak$V2, end = peak$V3))
+})
+
+# combine
+all_peaks <- do.call(c, granges)
+master_peaks <- reduce(all_peaks)
+
+master_peaks$peak_id <- paste0("peak_", seq_along(master_peaks))
+```
+
+```{r}
+# In R: Export master peaks to BED
+library(rtracklayer)
+
+export.bed(master_peaks, "master_peaks.bed")
+```
+# DESeq2
+
+```{r}
+# define alignment files
+USB_PATH="/Volumes/EZH2/"
+align_path = sapply(USB_PATH, paste0, sample_names)
+align_files <- sapply(align_path, paste0, ".target.markdup.sorted.bam")
+
+# create colData
+m <- sub("([A-Za-z0-9]+)[+-]T-EZH2_R[1-3]", "\\1", sample_names)
+tx <- sub(".*([+-])T-EZH2_R[1-3]", "\\1", sample_names)
+rep <- sub(".*([1-3])$", "\\1", sample_names)
+
+coldata <- data.frame(
+  sample = sample_names,
+  mutant = factor(m),
+  treatment = factor(ifelse(tx=="-", 0,1)),
+  replicate = factor(rep),
+  row.names = sample_names
+)
+
+#get counts
+library(chromVAR)
+count_matrix <- getCounts(alignment_files = align_files, peaks = master_peaks, paired = TRUE)
+```
+
+
+```{r}
+dds <- DESeqDataSetFromMatrix(
+  countData = count_matrix,
+  colData = coldata,
+  design = ~replicate+treatment*mutant
+)
+
+dds <- DESeq(dds)
+```
+
+
+```{r}
+
+```
+
