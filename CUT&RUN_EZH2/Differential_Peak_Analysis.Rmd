@@ -531,3 +531,56 @@ for (rep_level in rep_levels) {
 ```
 
 
+# Comparing treatment effect in R179 only
+
+```{r}
+count_r179 <- assay(count_r179)
+```
+
+```{r}
+colnames(count_r179) <- gsub(".target.markdup.sorted.bam", "", colnames(count_r179))
+col_r179 <- coldata[coldata$mutant=="R179",]
+head(col_r179)
+head(count_r179)
+```
+
+```{r}
+library(DESeq2)
+dds <- DESeqDataSetFromMatrix(
+  countData = count_r179,
+  colData = col_r179,
+  design = ~replicate+treatment
+)
+
+dds <- DESeq(dds)
+```
+
+```{r}
+# PCA
+library(pcaExplorer)
+vsd <- vst(dds, blind = FALSE)
+```
+
+```{r}
+library(ggplot2)
+pca_vsd <- plotPCA(vsd, intgroup = c("replicate", "treatment"), returnData = TRUE)
+percentVar <- round(100 * attr(pca_vsd, "percentVar"))
+ggplot(pca_vsd, aes(PC1, PC2, color=treatment)) +
+  geom_point(size=3) +
+  geom_text(aes(label = replicate), vjust = -0.8, size = 3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+```
+## treatment effect
+
+```{r}
+res_tx <- results(dds, name = "treatment_1_vs_0")
+summary(res_tx)
+```
+
+```{r}
+plotMA(res_tx, ylim = c(-2,2), main = "Treatment Effect in R179 only model")
+```
+
+
