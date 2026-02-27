@@ -2,15 +2,23 @@ library(GenomicRanges)
 # load data
 
 ## define conditions of each sample
-conditions <- c("R179+T", "R179-T", "WT+T", "WT-T")
-replicates <- C("R1", "R2")
+conditions <- c("R179+T", "R179-T")
+replicates <- c("R1", "R2", "R3") 
 sample_names <- unlist(lapply(conditions, function(cond){
   paste0(cond, "-EZH2_", replicates)
 }))
 condition_files <- lapply(sample_names, paste0, ".seacr.peaks.stringent.bed")
 
 # read peak files
-peaks <- lapply(condition_files, read.table, header=FALSE, sep="\t")
+peaks <- lapply(condition_files, function(file) {
+  if (file.size(file) > 0) {
+    read.table(file, header=FALSE)
+  } else {
+    warning(paste("Skipping empty file:", file))
+    return(NULL)
+  }
+})
+peaks <- peaks[!sapply(peaks, is.null)]
 
 # create GRanges objects
 granges <- lapply(peaks, function(peak){
@@ -32,3 +40,4 @@ align_files <- sapply(align_path, paste0, ".target.markdup.sorted.bam")
 #get counts
 library(chromVAR)
 count_matrix <- getCounts(alignment_files = align_files, peaks = master_peaks, paired = TRUE)
+count_r179 <- count_matrix
