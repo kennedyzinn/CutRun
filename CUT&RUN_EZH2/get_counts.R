@@ -20,7 +20,7 @@ granges <- lapply(peaks, function(peak){
 
 # combine
 all_peaks <- do.call(c, granges)
-master_peaks <- reduce(all_peaks)
+master_peaks <- reduce(all_peaks) # saved in folder as master_peaks.bed. Not sure when I saved this either, possible I did it in AWS
 
 master_peaks$peak_id <- paste0("peak_", seq_along(master_peaks))
 
@@ -32,3 +32,7 @@ align_files <- sapply(align_path, paste0, ".target.markdup.sorted.bam")
 #get counts
 library(chromVAR)
 count_matrix <- getCounts(alignment_files = align_files, peaks = master_peaks, paired = TRUE)
+write.csv(count_matrix, "dense_countMat.csv") # not sure but pretty sure this R 
+# script is how I got the dense_countMat.csv. I think I accidentally save the 
+# count_matrix object using the console instead of including this line in the 
+# script

@@ -517,7 +517,7 @@ for (rep_level in rep_levels) {
   # Create volcano plot
   volcano_by_rep[[rep_level]] <- volcano(
     res_by_rep[[rep_level]],
-    title = paste("Variant Effect in", rep_level)
+    title = paste("Variant Effect in Replicate Group", rep_level)
   )
   
   # Display plot
@@ -529,59 +529,190 @@ for (rep_level in rep_levels) {
          width = 8, height = 6)
     }
 ```
-
-
-# Comparing treatment effect in R179 only
+# Gene-Level Analysis of Differential Peaks with respect to Variant with ChIPseeker
 
 ```{r}
-count_r179 <- assay(count_r179)
+library(ChIPseeker)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+```
+
+## Annotate significant peaks
+
+```{r}
+# get coordinates from master peaks bed file and convert to a data frame
+master_peaks <- import("master_peaks.bed")
+peak_coords <- as.data.frame(master_peaks) %>% 
+  dplyr::select(seqnames, start, end, width, strand) %>% 
+  dplyr::mutate(peak_index = seq_len(nrow(.)))
 ```
 
 ```{r}
-colnames(count_r179) <- gsub(".target.markdup.sorted.bam", "", colnames(count_r179))
-col_r179 <- coldata[coldata$mutant=="R179",]
-head(col_r179)
-head(count_r179)
+# convert deseq results object to data frame
+res_mut_df <- as.data.frame(res_mut)
+res_mut_df$peak_index <- as.integer(rownames(res_mut_df))
+
+# filter for significant peaks
+sig_peaks <- res_mut_df %>% 
+  dplyr::filter(!is.na(padj), padj < 0.05, abs(log2FoldChange) > 1)
 ```
 
 ```{r}
-library(DESeq2)
-dds <- DESeqDataSetFromMatrix(
-  countData = count_r179,
-  colData = col_r179,
-  design = ~replicate+treatment
+# merge deseq results object with genomic coordinates from master peaks object
+sig_peaks_coords <- sig_peaks %>% 
+  dplyr::left_join(peak_coords, by = "peak_index")
+
+head(sig_peaks_coords[, c("seqnames", "start", "end", "log2FoldChange", "padj")])
+```
+
+```{r}
+# convert to granges object for chipseeker
+sig_gr <- GRanges(
+  seqnames = sig_peaks_coords$seqnames,
+  ranges = IRanges(start = sig_peaks_coords$start,
+                   end = sig_peaks_coords$end),
+  log2FC = sig_peaks_coords$log2FoldChange,
+  padj = sig_peaks_coords$padj
 )
 
-dds <- DESeq(dds)
+# load mouse transcript database, I used mm10 in nextflow pipeline
+txdb  <- TxDb.Mmusculus.UCSC.mm10.knownGene
+
+# annotate peaks
+peakAnno <- annotatePeak(
+  sig_gr,
+  tssRegion = c(-3000, 3000), # promoter window definition, suggested by claude lol
+  TxDb = txdb,
+  annoDb = "org.Mm.eg.db"
+)
 ```
 
 ```{r}
-# PCA
-library(pcaExplorer)
-vsd <- vst(dds, blind = FALSE)
+# convert annotation to dataframe
+anno_df <- as.data.frame(peakAnno)
+
+# see distribution
+plotAnnoPie(peakAnno)
+plotDistToTSS(peakAnno)
+
+write.csv(anno_df, "sig_peaks_annotated.csv", row.names = FALSE)
+```
+
+## Annotate all peaks for GSEA
+
+```{r}
+# Convert the full res_mut to data frame, keeping everything
+res_all_df <- as.data.frame(res_mut)
+res_all_df$peak_index <- as.integer(rownames(res_all_df))
+
+# Merge with coordinates — no filtering this time
+all_peaks_coords <- res_all_df %>%
+  dplyr::left_join(peak_coords, by = "peak_index") %>%
+  dplyr::filter(!is.na(log2FoldChange), !is.na(seqnames))  # only remove NAs
+
+# Convert to GRanges
+all_gr <- GRanges(
+  seqnames = all_peaks_coords$seqnames,
+  ranges   = IRanges(start = all_peaks_coords$start,
+                     end   = all_peaks_coords$end),
+  log2FC   = all_peaks_coords$log2FoldChange,
+  padj     = all_peaks_coords$padj
+)
+
+# Annotate all peaks
+peakAnno_all <- annotatePeak(
+  all_gr,
+  tssRegion = c(-3000, 3000),
+  TxDb      = txdb,
+  annoDb    = "org.Mm.eg.db"
+)
+
+anno_df_all <- as.data.frame(peakAnno_all)
 ```
 
 ```{r}
-library(ggplot2)
-pca_vsd <- plotPCA(vsd, intgroup = c("replicate", "treatment"), returnData = TRUE)
-percentVar <- round(100 * attr(pca_vsd, "percentVar"))
-ggplot(pca_vsd, aes(PC1, PC2, color=treatment)) +
-  geom_point(size=3) +
-  geom_text(aes(label = replicate), vjust = -0.8, size = 3) +
-  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
-  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
-  coord_fixed()
+# build ranked gene list for gsea
+# Rank by log2FC, one entry per gene (keep strongest signal per gene)
+ranked_genes <- anno_df_all %>%
+  dplyr::filter(!is.na(ENSEMBL)) %>%
+  dplyr::arrange(desc(abs(log2FC))) %>%   # keep peak with largest absolute LFC per gene
+  dplyr::distinct(ENSEMBL, .keep_all = TRUE) %>%
+  dplyr::arrange(desc(log2FC))            # then re-rank by signed LFC for GSEA
+
+gene_ranks <- setNames(ranked_genes$log2FC, ranked_genes$ENSEMBL)
+
+# Verify it's a named, sorted numeric vector
+head(gene_ranks)
+tail(gene_ranks)
 ```
-## treatment effect
+### GSEA GO
 
 ```{r}
-res_tx <- results(dds, name = "treatment_1_vs_0")
-summary(res_tx)
+# run gsea
+gsea_go <- gseGO(
+  geneList     = gene_ranks,
+  OrgDb        = org.Mm.eg.db,
+  keyType      = "ENSEMBL",
+  ont          = "ALL",
+  minGSSize    = 10,
+  maxGSSize    = 500,
+  pvalueCutoff = 0.05, # none returned with 0.05 or 0.1
+  verbose      = FALSE,
+  seed         = 42
+)
+```
+
+### GSEA KEGG
+
+```{r}
+# first need to add a clumn that gives the entrezid of each gene
+library(AnnotationDbi)
+
+# Map SYMBOL to ENTREZ
+entrez_map <- mapIds(org.Mm.eg.db,
+                     keys      = anno_df_all$SYMBOL,
+                     column    = "ENTREZID",
+                     keytype   = "SYMBOL",
+                     multiVals = "first")   # takes first match if multiple
+
+anno_df_all$ENTREZID <- entrez_map[anno_df_all$SYMBOL]
+
+# build ranked gene list
+ranked_genes_kegg <- anno_df_all %>%
+  dplyr::filter(!is.na(ENTREZID)) %>%
+  dplyr::arrange(desc(abs(log2FC))) %>%
+  dplyr::distinct(ENTREZID, .keep_all = TRUE) %>%
+  dplyr::arrange(desc(log2FC))
+
+gene_ranks_kegg <- setNames(ranked_genes_kegg$log2FC, ranked_genes_kegg$ENTREZID)
 ```
 
 ```{r}
-plotMA(res_tx, ylim = c(-2,2), main = "Treatment Effect in R179 only model")
+# gsea for KEGG
+gsea_kegg <- gseKEGG(
+  geneList     = gene_ranks_kegg,
+  organism     = "mmu",            # mus musculus
+  keyType      = "ncbi-geneid",
+  minGSSize    = 10,
+  maxGSSize    = 500,
+  pvalueCutoff = 0.05, #none returned under 0.05 or 0.1
+  pAdjustMethod = "BH",
+  verbose      = FALSE,
+  seed         = 42
+)
 ```
 
-next steps: pathway analysis on wt v r179
+
+
+
+
+
+
+
+
+
+
+
+
 
